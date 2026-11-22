@@ -283,6 +283,7 @@ export async function captureGatewayOperatorRunAuthority(input: {
   /** Additional request lifetime; never replaces the authenticated access grant. */
   invocationAuthority?: Readonly<{
     participationAuthority?: AdmittedRunOperatorAuthority;
+    participationCeiling?: import("../agents/participation-ceiling.js").BoundParticipationCeiling;
     assertCurrent: () => void;
     signal?: AbortSignal;
     release?: () => void;
@@ -595,6 +596,7 @@ export async function captureGatewayOperatorRunAuthority(input: {
       scopes,
       gatewayAccessGrant: grant ? Object.freeze({ ...grant }) : grant,
       assertCurrent,
+      participationCeiling: params.invocationAuthority?.participationCeiling,
     };
     const { snapshot: recoverySnapshot, unavailableReason: recoverySnapshotUnavailableReason } =
       captureGatewayOperatorRecoverySnapshot({
@@ -618,8 +620,7 @@ export async function captureGatewayOperatorRunAuthority(input: {
         policy: capturedRole,
       }),
       source: source.token,
-      participationCeiling:
-        params.invocationAuthority?.participationAuthority?.participationCeiling,
+      participationCeiling: admission.participationCeiling,
       invocation: params.invocationAuthority,
       signal: revocation.signal,
       retain: () => {

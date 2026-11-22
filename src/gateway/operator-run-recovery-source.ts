@@ -73,7 +73,12 @@ export function captureGatewayOperatorRecoverySnapshot(params: {
   client: GatewayClient;
   authority: Pick<
     AdmittedRunOperatorAuthority,
-    "profileId" | "scopes" | "gatewayAccessGrant" | "assertCurrent" | "openclawIdPrincipal"
+    | "profileId"
+    | "scopes"
+    | "gatewayAccessGrant"
+    | "assertCurrent"
+    | "openclawIdPrincipal"
+    | "participationCeiling"
   >;
   modelPolicy: PreparedOperatorModelPolicy | undefined;
   identity: Awaited<ReturnType<typeof prepareUserProfileIdentity>>;
@@ -96,6 +101,9 @@ export function captureGatewayOperatorRecoverySnapshot(params: {
     const profile = identity.readCurrentProfile();
     const snapshot = normalizeGatewayOperatorRecoverySnapshot({
       profileId: authority.profileId,
+      ...(authority.participationCeiling && {
+        participationCeiling: authority.participationCeiling,
+      }),
       openclawIdPrincipal: authority.openclawIdPrincipal,
       scopes: [...authority.scopes],
       assignedRole: profile.assignedRole,
@@ -154,6 +162,7 @@ export function captureGatewayOperatorRecoverySnapshot(params: {
   const profile = identity.readCurrentProfile();
   const source = {
     profileId: authority.profileId,
+    ...(authority.participationCeiling && { participationCeiling: authority.participationCeiling }),
     openclawIdPrincipal: authority.openclawIdPrincipal,
     scopes: [...authority.scopes],
     assignedRole: profile.assignedRole,
