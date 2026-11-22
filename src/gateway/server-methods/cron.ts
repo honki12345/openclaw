@@ -286,6 +286,7 @@ export const cronHandlers: GatewayRequestHandlers = {
         client?.internal?.openclawIdPrincipal ||
         sealed?.source.kind === "gateway" ||
         sealed?.source.snapshot.openclawIdPrincipal ||
+        sealed?.source.snapshot.participationCeiling ||
         currentJob.streamOperatorSource,
       );
       if (
