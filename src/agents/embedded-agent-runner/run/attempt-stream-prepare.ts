@@ -15,6 +15,7 @@ import { getModelProviderRuntimePluginHandle } from "../../../plugins/provider-h
 import { projectNestedToolActivityForHooks } from "../../../sessions/nested-tool-activity.js";
 import type { ReplyToolAuthorityPreparation } from "../../../sessions/session-controller.contracts.js";
 import { emitSessionLifecycleEvent } from "../../../sessions/session-lifecycle-events.js";
+import { readRunOperatorAuthority } from "../../admitted-run-context.js";
 import { prepareAgentRunTerminalReply } from "../../agent-run-terminal-reply.js";
 import { countActiveToolExecutions } from "../../embedded-agent-subscribe.handlers.tools.start.js";
 import { subscribeEmbeddedAgentSession } from "../../embedded-agent-subscribe.js";
@@ -395,11 +396,10 @@ function prepareStream(
         ? AGENT_RUN_RESTART_ABORT_STOP_REASON
         : undefined,
     onBeforeLifecycleTerminal: async () => {
-      if (deferredLifecycleOwner) {
-        return;
-      }
       // Clear active-run state before terminal events and post-completion cleanup.
-      clearActiveRun();
+      if (!deferredLifecycleOwner) {
+        clearActiveRun();
+      }
     },
     providerOwner: getModelProviderRuntimePluginHandle(attempt.model)?.plugin,
     currentAccountId: attempt.agentAccountId,
@@ -461,8 +461,8 @@ function prepareStream(
     registration?.toolAuthority?.assertActive();
     return isCurrentRegistration();
   };
-  const canInject = () =>
-    !attempt.participationCeiling && isSteeringAdmissionOpen() && hasCurrentRegistration();
+  const ceiling = readRunOperatorAuthority(attempt)?.participationCeiling;
+  const canInject = () => !ceiling && isSteeringAdmissionOpen() && hasCurrentRegistration();
   const instance = attempt.admittedRunContext?.operationalRunInstance;
   const runContext = getAgentRunContext(attempt.runId);
   const supportsUserReplyPromotion =
