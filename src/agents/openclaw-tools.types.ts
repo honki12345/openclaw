@@ -123,8 +123,6 @@ export type OpenClawSharedToolsOptions = {
 };
 
 export type OpenClawToolsOptions = {
-  admittedRunContext?: import("./admitted-run-context.js").AdmittedRunContext;
-  preparedRunAdmission?: import("./admitted-run-context.js").PreparedAgentRunAdmission;
   /** Internal listing owner pins discovery changes or renders a read-only inventory. */
   githubPublicationConfigurationAware?: true;
   /** Internal inventory projection; the resulting GitHub tool cannot execute. */
