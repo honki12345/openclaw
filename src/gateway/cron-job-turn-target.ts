@@ -24,11 +24,16 @@ export async function captureCronJobTurnTarget(params: {
   const { job, agentId, sessionKey, context } = params;
   const capture = (options?: Parameters<typeof captureSessionEventTargetForHost>[2]) =>
     captureSessionEventTargetForHost(agentId, sessionKey, options);
-  const nonOwner = async () => ({
-    // A known requester that is not, or no longer, an owner: never the session principal.
-    target: await capture({ requesterOwner: {} }),
-    release: () => {},
-  });
+  const nonOwner = async () => {
+    if (job.operatorSource?.source.snapshot?.participationCeiling) {
+      throw new Error("Participant automation notices require current original-source authority.");
+    }
+    return {
+      // A known requester that is not, or no longer, an owner: never the session principal.
+      target: await capture({ requesterOwner: {} }),
+      release: () => {},
+    };
+  };
   let requester: ReturnType<typeof resolveScheduledRequester>;
   try {
     requester = resolveScheduledRequester(job);

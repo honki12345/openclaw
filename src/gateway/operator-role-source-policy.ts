@@ -32,6 +32,7 @@ export function isOperatorRoleSourcePolicyCurrent(
   captured: ReturnType<typeof sourceRolePolicy>,
   current: ReturnType<typeof sourceRolePolicy>,
   scopes: readonly string[],
+  participation = false,
 ): boolean {
   if (!captured || !current) {
     return captured === current;
@@ -39,6 +40,22 @@ export function isOperatorRoleSourcePolicyCurrent(
   // Role grants are schema-validated enum values; only requested scopes need trimming.
   if (resolveMissingOperatorScope(scopes, current.scopes) !== null) {
     return false;
+  }
+  if (participation) {
+    const withoutInvitation = (sessions: typeof captured.sessions) => {
+      const {
+        maxInvitedAccess: _access,
+        invitedPermission: _permission,
+        invitedTools: _tools,
+        invitedAlsoAllow: _also,
+        ...policy
+      } = sessions ?? {};
+      return policy;
+    };
+    return isDeepStrictEqual(
+      { ...captured, scopes: current.scopes, sessions: withoutInvitation(captured.sessions) },
+      { ...current, sessions: withoutInvitation(current.sessions) },
+    );
   }
   return isDeepStrictEqual({ ...captured, scopes: current.scopes }, current);
 }

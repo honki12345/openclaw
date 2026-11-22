@@ -70,6 +70,7 @@ import { getGatewayControlUiIngressHost } from "./remote-control-ui-ingress-host
 import { restoreIngressPrincipalRecovery } from "./remote-ingress-principal-recovery.js";
 import type { GatewayRequestContext } from "./server-methods/shared-types.js";
 import type { GatewayAuthenticatedUserProfile } from "./server/client-identity-types.js";
+import { prepareRecoveredParticipation } from "./session-participation-recovery.js";
 
 export type RestoredGatewayOperatorAuthority = {
   authority: AdmittedRunOperatorAuthority;
@@ -239,6 +240,7 @@ async function restoreGatewayOperatorSnapshot(params: {
             snapshot.rolePolicy,
             sourceRolePolicy(resolveRole(cfg)),
             snapshot.scopes,
+            snapshot.participationCeiling !== undefined,
           )) ||
         (authPolicy !== undefined && !principal && !isGatewayAuthGrantCurrent(authPolicy, cfg))
       ) {
@@ -387,14 +389,39 @@ async function restoreGatewayOperatorSnapshot(params: {
     const originalModels = snapshot.modelPolicy
       ? restoreOperatorModelPolicySnapshot(snapshot.modelPolicy)
       : undefined;
+    const participation = snapshot.participationCeiling
+      ? await prepareRecoveredParticipation({
+          context,
+          ceiling: snapshot.participationCeiling,
+          revoke,
+          authority: createAdmittedRunOperatorAuthority({
+            ...live,
+            retain: undefined,
+            recoverySnapshot: snapshot,
+            assertCurrent: assertRecoveryCurrent,
+            reauthorize: reauthorizePolicy,
+          }),
+        })
+      : undefined;
+    if (participation) {
+      subscriptions.push(participation.release);
+    }
+    const participationCeiling = participation?.ceiling;
     const authority = createAdmittedRunOperatorAuthority({
       ...live,
+      participationCeiling,
       recoverySnapshot: snapshot,
       signal: AbortSignal.any([signal.signal, claim.signal]),
-      assertCurrent: assertRecoveryCurrent,
+      assertCurrent: participation
+        ? () => {
+            assertRecoveryCurrent();
+            participation.assertCurrent();
+          }
+        : assertRecoveryCurrent,
       readCurrentRoleFacts: () => admittedRoleFacts,
       reauthorize: () => {
         const cfg = reauthorizePolicy();
+        participation?.assertCurrent();
         if (!isDeepStrictEqual(capturedModelPolicy, resolveRole(cfg)?.modelPolicy)) {
           throw new GatewayOperatorRecoveryAuthorizationError(
             "Restart recovery operator model policy changed; start a new user turn.",
@@ -588,7 +615,7 @@ export async function restoreGatewayQueuedOperatorRecovery(params: {
 }
 
 /** Accepted work runs on its origin's saved facts and current policy, not its accepting request. */
-async function captureGatewayOperatorContinuationSource(
+export async function captureGatewayOperatorContinuation(
   input: Parameters<typeof captureGatewayOperatorRunAuthority>[0],
 ): ReturnType<typeof captureGatewayOperatorRunAuthority> {
   const inherited = input.client?.internal?.operatorRunAuthority;
@@ -596,6 +623,11 @@ async function captureGatewayOperatorContinuationSource(
   const facts = inherited && captureQueuedOperatorRecoverySource(inherited);
   // Every distinct continuation re-admits, including sources without durable recovery facts.
   inherited?.reauthorize?.();
+  if (inherited?.participationCeiling && (!context || !facts || facts.kind === "unavailable")) {
+    throw new GatewayOperatorRecoveryAuthorizationError(
+      "Participant continuation requires its retained source.",
+    );
+  }
   if (!inherited || !context || !facts || facts.kind === "unavailable") {
     // A source without saved facts keeps its live authority.
     return await captureGatewayOperatorRunAuthority(input);
@@ -645,43 +677,4 @@ async function captureGatewayOperatorContinuationSource(
     },
     input.invocationAuthority,
   );
-}
-
-/** Re-admit a descendant's invitation independently of the ended spawning request. */
-export async function captureGatewayOperatorContinuation(
-  input: Parameters<typeof captureGatewayOperatorRunAuthority>[0] & {
-    participationCeiling?: import("../agents/participation-ceiling.js").ParticipationCeiling;
-  },
-): ReturnType<typeof captureGatewayOperatorRunAuthority> {
-  const captured = await captureGatewayOperatorContinuationSource(input);
-  const ceiling =
-    input.participationCeiling ??
-    input.client?.internal?.operatorRunAuthority?.participationCeiling;
-  if (!captured || !ceiling?.source) {
-    return captured;
-  }
-  try {
-    const { prepareSessionParticipationRun } = await import("./session-principal-run-authority.js");
-    const context = input.context.resolveGatewayContext?.();
-    if (!context) {
-      throw new Error("Participant continuation requires its original Gateway.");
-    }
-    const participant = await prepareSessionParticipationRun({
-      context,
-      agentId: ceiling.source.agentId,
-      turnCeiling: ceiling,
-    });
-    if (!participant) {
-      throw new Error("Participant continuation requires current source authority.");
-    }
-    return retainGatewayOperatorInvocation(captured, {
-      participationAuthority: participant.authority,
-      assertCurrent: participant.authority.assertCurrent,
-      signal: participant.authority.signal,
-      release: participant.release,
-    });
-  } catch (error) {
-    captured.release();
-    throw error;
-  }
 }
