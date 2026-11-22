@@ -414,6 +414,7 @@ export async function authorizeGatewayRequestPreDispatch(params: {
             client.connect.scopes ?? [],
             params.requestParams,
             params.methodRegistry,
+            client.internal?.operatorRunAuthority,
           ),
         );
         if (currentScope.allowed && currentScope.sessionScope !== scopeAuthorization.sessionScope) {

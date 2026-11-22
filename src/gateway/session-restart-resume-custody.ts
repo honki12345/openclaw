@@ -1,4 +1,3 @@
-import { resolveSubagentCompletionParticipation } from "../agents/subagents/registry/subagent-child-owner-match.js";
 import {
   getSubagentRunsForRequesterSession,
   subagentRuns,
@@ -31,7 +30,7 @@ import {
   captureOperatorToolGatewayContinuationContext,
   withOperatorToolGatewayAuthority,
 } from "./server-plugin-in-process-dispatch.js";
-import { prepareSessionParticipationRun } from "./session-principal-run-authority.js";
+import { prepareSessionDelegatedOperatorAuthority } from "./session-delegated-operator-source.js";
 import type {
   PreparedRestartStore,
   RestartResumeParams,
@@ -149,14 +148,16 @@ async function recoverRequesterCompletionCustody(params: {
           },
           assertCurrent,
         );
-        const participant = await prepareSessionParticipationRun({
+        const participant = await prepareSessionDelegatedOperatorAuthority({
           context,
           agentId,
           entry: childEntry,
-          turnCeiling: resolveSubagentCompletionParticipation([child], childEntry),
           assertCurrent,
         });
         try {
+          if (child.requiresCompletionAuthority && !participant) {
+            throw new Error("Participant completion requires its original delegated source.");
+          }
           if (!participant && !authority) {
             authority = await prepareSessionSystemTurnAuthority({
               context,
