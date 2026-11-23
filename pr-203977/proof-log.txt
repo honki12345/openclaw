@@ -1,0 +1,7 @@
+served UI is this checkout's built bundle; real Gateway on 127.0.0.1
+after shortcut open: {"activeInHomeComposer":true,"activeRole":"textarea","draft":"","selection":[0,0],"dockOpen":true}
+after typing: {"activeInHomeComposer":true,"activeRole":"textarea","draft":"Draft for Home","selection":[14,14],"dockOpen":true}
+after repeat shortcut: {"activeInHomeComposer":false,"activeRole":"body","draft":null,"selection":null,"dockOpen":false}
+after shortcut reopen: {"activeInHomeComposer":true,"activeRole":"textarea","draft":"Draft for Home","selection":[14,14],"dockOpen":true}
+after sidebar button open: {"activeInHomeComposer":true,"activeRole":"textarea","draft":"Draft for Home","selection":[14,14],"dockOpen":true}
+after typing from sidebar open: {"activeInHomeComposer":true,"activeRole":"textarea","draft":"Draft for Home and more","selection":[23,23],"dockOpen":true}

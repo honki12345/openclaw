@@ -1,0 +1,162 @@
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
+import { expect, it } from "vitest";
+import {
+  createOpenClawTestInstance,
+  type OpenClawTestInstance,
+} from "../../../test/helpers/openclaw-test-instance.ts";
+import { controlUiSessionUrl, waitForControlUiRoute } from "../test-helpers/control-ui-e2e.ts";
+import { assertServedUi, pairFixture } from "./chat-lifecycle.test-support.ts";
+import { connectChatGateway } from "./chat-real-gateway.test-support.ts";
+import { createControlUiE2eSuite } from "./control-ui-e2e-suite.test-support.ts";
+
+const workKey = "agent:main:work";
+const homeKey = "agent:main:main";
+let owner: OpenClawTestInstance;
+let client: Awaited<ReturnType<typeof connectChatGateway>>;
+const suite = createControlUiE2eSuite({
+  name: "Home composer focus through a real Gateway (proof)",
+  startServerBeforeBrowser: true,
+  resources: {
+    async run(signal) {
+      client = await connectChatGateway(owner, signal);
+      await client.request("sessions.create", { key: workKey, agentId: "main" });
+      await client.request("chat.inject", { sessionKey: workKey, message: "Work session notes" });
+      await client.request("sessions.create", { key: homeKey, agentId: "main" }).catch(() => {});
+      await client.request("chat.inject", { sessionKey: homeKey, message: "Home is ready." });
+    },
+    async close() {
+      await client?.stopAndWait();
+    },
+  },
+  async startServer() {
+    owner = await createOpenClawTestInstance({
+      name: "home-focus-proof",
+      env: { OPENCLAW_TEST_MINIMAL_GATEWAY: undefined, VITEST: undefined, NODE_ENV: undefined },
+      config: {
+        gateway: { controlUi: { enabled: true } },
+        plugins: { enabled: false },
+        cron: { enabled: false },
+        agents: {
+          defaults: { model: "fixture/unused", modelPolicy: { allow: ["fixture/unused"] } },
+          entries: { main: { identity: { name: "Focus fixture" } } },
+        },
+        models: {
+          catalogRefresh: { enabled: false },
+          providers: {
+            fixture: {
+              api: "openai-completions",
+              apiKey: "synthetic-focus-key",
+              baseUrl: "http://127.0.0.1:9/v1",
+              models: [{ id: "unused", name: "Unused fixture model" }],
+            },
+          },
+        },
+      },
+    });
+    try {
+      await owner.startGateway();
+      return { baseUrl: `http://127.0.0.1:${owner.port}/`, close: () => owner.cleanup() };
+    } catch (error) {
+      await owner.cleanup();
+      throw error;
+    }
+  },
+});
+
+suite.define(() => {
+  it("focuses Home on explicit open, keeps the draft, and closes on repeat shortcut", async () => {
+    const viewport = { width: 1280, height: 860 };
+    const log: string[] = [];
+    await suite.withPage(
+      {
+        viewport,
+        locale: "en-US",
+        colorScheme: "dark",
+        serviceWorkers: "block",
+        recordVideo: { dir: suite.artifactDir, size: viewport },
+      },
+      async ({ page }) => {
+        const note = (line: string) => {
+          log.push(line);
+          console.log(`[proof] ${line}`);
+        };
+        const focusInfo = () =>
+          page.evaluate(() => {
+            const active = document.activeElement;
+            const home = active?.closest("openclaw-home-session");
+            const textarea = document.querySelector<HTMLTextAreaElement>(
+              "openclaw-assistant-panel openclaw-home-session textarea",
+            );
+            return {
+              activeInHomeComposer: Boolean(home && active?.closest(".agent-chat__input")),
+              activeRole: active?.getAttribute("role") ?? active?.tagName.toLowerCase(),
+              draft: textarea?.value ?? null,
+              selection: textarea ? [textarea.selectionStart, textarea.selectionEnd] : null,
+              dockOpen: Boolean(
+                document.querySelector("openclaw-assistant-panel")?.assistantPanelOpen,
+              ),
+            };
+          });
+        await pairFixture(page, owner);
+        await page.goto(controlUiSessionUrl(suite.server.baseUrl, workKey));
+        await waitForControlUiRoute(page, { routeId: "chat" });
+        await page.getByText("Work session notes", { exact: true }).waitFor();
+        await assertServedUi(page, suite.server.baseUrl);
+        note("served UI is this checkout's built bundle; real Gateway on 127.0.0.1");
+        const composer = page
+          .locator("openclaw-assistant-panel openclaw-home-session")
+          .getByRole("textbox", { name: "Chat composer", exact: true });
+        await page.waitForTimeout(600);
+
+        await page.keyboard.press("ControlOrMeta+Shift+H");
+        await composer.waitFor();
+        await page.getByText("Home is ready.", { exact: true }).waitFor();
+        await expect.poll(async () => (await focusInfo()).activeInHomeComposer).toBe(true);
+        note(`after shortcut open: ${JSON.stringify(await focusInfo())}`);
+        await page.keyboard.type("Draft for Home", { delay: 60 });
+        await page.waitForTimeout(500);
+        note(`after typing: ${JSON.stringify(await focusInfo())}`);
+        expect((await focusInfo()).draft).toBe("Draft for Home");
+
+        await page.keyboard.press("ControlOrMeta+Shift+H");
+        await composer.waitFor({ state: "hidden" });
+        await page.waitForTimeout(600);
+        note(`after repeat shortcut: ${JSON.stringify(await focusInfo())}`);
+        expect((await focusInfo()).dockOpen).toBe(false);
+
+        await page.keyboard.press("ControlOrMeta+Shift+H");
+        await composer.waitFor();
+        await expect.poll(async () => (await focusInfo()).activeInHomeComposer).toBe(true);
+        await page.waitForTimeout(500);
+        const reopened = await focusInfo();
+        note(`after shortcut reopen: ${JSON.stringify(reopened)}`);
+        expect(reopened.draft).toBe("Draft for Home");
+        expect(reopened.selection).toEqual([14, 14]);
+        await writeFile(path.join(suite.artifactDir, "reopen.png"), await page.screenshot());
+
+        await page.keyboard.press("ControlOrMeta+Shift+H");
+        await composer.waitFor({ state: "hidden" });
+        await page.locator("openclaw-chat-page").getByRole("textbox", { name: "Chat composer", exact: true }).click();
+        await page.waitForTimeout(400);
+        await page.locator(".sidebar-footer-bar__home").click();
+        await composer.waitFor();
+        await expect.poll(async () => (await focusInfo()).activeInHomeComposer).toBe(true);
+        await page.waitForTimeout(500);
+        note(`after sidebar button open: ${JSON.stringify(await focusInfo())}`);
+        await page.keyboard.type(" and more", { delay: 60 });
+        await page.waitForTimeout(500);
+        const final = await focusInfo();
+        note(`after typing from sidebar open: ${JSON.stringify(final)}`);
+        expect(final.draft).toBe("Draft for Home and more");
+        await writeFile(path.join(suite.artifactDir, "sidebar-open.png"), await page.screenshot());
+        await writeFile(path.join(suite.artifactDir, "proof-log.txt"), `${log.join("\n")}\n`);
+      },
+      async ({ page, context }) => {
+        const video = page.video();
+        await suite.closeBrowserContext(context);
+        await video?.saveAs(path.join(suite.artifactDir, "home-focus.webm"));
+      },
+    );
+  }, 180_000);
+});
